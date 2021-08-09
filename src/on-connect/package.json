@@ -1,0 +1,12 @@
+{
+  "name": "on-conenct",
+  "version": "1.0.0",
+  "description": "On Connect function for remote word websocket API",
+  "main": "app.js",
+  "author": "juanpiedrahita",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "aws-sdk": "^2.739.0"
+  }
+}

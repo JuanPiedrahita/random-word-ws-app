@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  random-word-picker-app
+  SAM Template for random-word-picker-app that has the DynamoDB table and Lambda
+  functions needed to demonstrate the Websocket protocol on API Gateway.
+Parameters:
+  WordTableName:
+    Type: String
+    Default: 'Words'
+    Description: (Required) The name of the new DynamoDB table to store words. Minimum 3 characters.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z_]+$
+    ConstraintDescription: 'Required. Can be characters and underscore only. No numbers or special characters allowed.'
+  WordApiName:
+    Type: String
+    Default: 'WordPickerWebSocket'
+    Description: (Required) The name of the new API Gateway. Minimum 3 characters.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z_]+$
+    ConstraintDescription: 'Required. Can be characters and underscore only. No numbers or special characters allowed.'
+
+Resources:
+  # WebSockets API
+  WordPickerWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Ref WordApiName
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+      Tags: 
+        App: WordPicker
+  # Connect Route
+  ConnectApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: ConnectApiRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref ConnectApiIntegration
+  ConnectApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnConnectFunction.Arn}/invocations
+  # Disconnect Route
+  DisconnectApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectApiRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref DisconnectApiIntegration
+  DisconnectApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OnDisconnectFunction.Arn}/invocations
+  # GetRandonWord Route
+  GetRandomWordRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      RouteKey: getrandomword
+      AuthorizationType: NONE
+      OperationName: GetRandomWordRoute
+      Target: !Join
+        - '/'
+        - - 'integrations'
+          - !Ref GetRandomWordIntegration
+  GetRandomWordIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+      Description: GetRandomWord Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetRandomWordFunction.Arn}/invocations
+  GetRandomWordIntegrationResponse:
+    Type: AWS::ApiGatewayV2::IntegrationResponse
+    Properties: 
+      ApiId: !Ref WordPickerWebSocket
+      IntegrationId: !Ref GetRandomWordIntegration
+      IntegrationResponseKey: "/200/"
+  GetRandomWordRouteResponse: 
+    Type: AWS::ApiGatewayV2::RouteResponse
+    Properties: 
+      ApiId: !Ref WordPickerWebSocket
+      RouteId: !Ref GetRandomWordRoute
+      RouteResponseKey: "$default"
+  # Api Deployment
+  ApiDeployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+    - ConnectApiRoute
+    - GetRandomWordRoute
+    - DisconnectApiRoute
+    Properties:
+      ApiId: !Ref WordPickerWebSocket
+  ApiProductionStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: prod
+      Description: Production Stage
+      DeploymentId: !Ref ApiDeployment
+      ApiId: !Ref WordPickerWebSocket
+  # DynamoDB Word Table
+  WordsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: "word"
+        AttributeType: "S"
+      KeySchema:
+      - AttributeName: "word"
+        KeyType: "HASH"
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: True
+      TableName: !Ref WordTableName
+  # Lambda Functions
+  OnConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OnConnect
+      CodeUri: src/on-connect/
+      Handler: app.handler
+      MemorySize: 256
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WordTableName
+      Tags: 
+        App: WordPicker
+  OnConnectFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - WordPickerWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnConnectFunction
+      Principal: apigateway.amazonaws.com
+  OnDisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OnDisconnect
+      CodeUri: src/on-disconnect/
+      Handler: app.handler
+      MemorySize: 256
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WordTableName
+      Tags: 
+        App: WordPicker
+  OnDisconnectPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - WordPickerWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OnDisconnectFunction
+      Principal: apigateway.amazonaws.com
+  GetRandomWordFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetRandomWord
+      CodeUri: src/get-random-word/
+      Handler: app.handler
+      MemorySize: 256
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref WordTableName
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName: !Ref WordTableName
+      Tags: 
+        App: WordPicker
+  GetRandomWordFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - WordPickerWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GetRandomWordFunction
+      Principal: apigateway.amazonaws.com
+
+Outputs:
+  WordsTableArn:
+    Description: "Words table ARN"
+    Value: !GetAtt WordsTable.Arn
+
+  OnConnectFunctionArn:
+    Description: "OnConnect function ARN"
+    Value: !GetAtt OnConnectFunction.Arn
+
+  OnDisconnectFunctionArn:
+    Description: "OnDisconnect function ARN"
+    Value: !GetAtt OnDisconnectFunction.Arn
+
+  GetRandomWordFunctionArn:
+    Description: "GetRandomWord function ARN"
+    Value: !GetAtt GetRandomWordFunction.Arn
+
+  ApiWebSocketURI:
+    Description: "The WSS Protocol URI to connect to API"
+    Value: !Join [ '', [ 'wss://', !Ref WordPickerWebSocket, '.execute-api.',!Ref 'AWS::Region','.amazonaws.com/',!Ref 'ApiProductionStage'] ]

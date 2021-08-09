@@ -1,0 +1,12 @@
+{
+  "name": "on-disconnect",
+  "version": "1.0.0",
+  "description": "On Disconnect function for remote word websocket API",
+  "main": "app.js",
+  "author": "juanpiedrahita",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "aws-sdk": "^2.739.0"
+  }
+}
